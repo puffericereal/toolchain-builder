@@ -1,4 +1,4 @@
-name: Build aarch64 Android Toolchain
+name: Build aarch64 Android Toolchain for CM11
 
 on:
   workflow_dispatch:
@@ -16,14 +16,14 @@ jobs:
             libisl-dev libcloog-isl-dev \
             flex bison texinfo \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            curl wget git zip
+            curl wget git zip patchelf
 
       - name: Set versions
         run: |
           echo "BINUTILS_VER=2.27" >> $GITHUB_ENV
-          echo "GCC_VER=4.9.4" >> $GITHUB_ENV
-          echo "TARGET_EABI=arm-eabi" >> $GITHUB_ENV
+          echo "GCC_VER=4.7.4" >> $GITHUB_ENV
           echo "TARGET_ANDROID=arm-linux-androideabi" >> $GITHUB_ENV
+          echo "TARGET_EABI=arm-eabi" >> $GITHUB_ENV
           echo "HOST=aarch64-linux-gnu" >> $GITHUB_ENV
           echo "PREFIX=$HOME/toolchain-aarch64" >> $GITHUB_ENV
 
@@ -35,11 +35,52 @@ jobs:
           tar xf gcc-$GCC_VER.tar.gz
           cd gcc-$GCC_VER && ./contrib/download_prerequisites
 
+      - name: Build binutils (arm-linux-androideabi)
+        run: |
+          mkdir build-binutils-android && cd build-binutils-android
+          ../binutils-$BINUTILS_VER/configure \
+            --prefix=$PREFIX/arm-linux-androideabi-4.7 \
+            --target=$TARGET_ANDROID \
+            --host=$HOST \
+            --build=x86_64-linux-gnu \
+            --disable-nls \
+            --disable-multilib \
+            --disable-werror \
+            --with-sysroot
+          make -j$(nproc)
+          make install
+
+      - name: Build GCC (arm-linux-androideabi)
+        run: |
+          mkdir build-gcc-android && cd build-gcc-android
+          ../gcc-$GCC_VER/configure \
+            --prefix=$PREFIX/arm-linux-androideabi-4.7 \
+            --target=$TARGET_ANDROID \
+            --host=$HOST \
+            --build=x86_64-linux-gnu \
+            --enable-languages=c,c++ \
+            --disable-nls \
+            --disable-multilib \
+            --disable-shared \
+            --disable-libssp \
+            --disable-libgomp \
+            --disable-libmudflap \
+            --with-arch=armv7-a \
+            --with-float=softfp \
+            --with-fpu=vfpv3-d16 \
+            --with-gnu-as \
+            --with-gnu-ld \
+            --disable-werror
+          make -j$(nproc) all-gcc
+          make install-gcc
+          make -j$(nproc) all-target-libgcc
+          make install-target-libgcc
+
       - name: Build binutils (arm-eabi)
         run: |
           mkdir build-binutils-eabi && cd build-binutils-eabi
           ../binutils-$BINUTILS_VER/configure \
-            --prefix=$PREFIX/arm-eabi-4.9 \
+            --prefix=$PREFIX/arm-eabi-4.7 \
             --target=$TARGET_EABI \
             --host=$HOST \
             --build=x86_64-linux-gnu \
@@ -53,7 +94,7 @@ jobs:
         run: |
           mkdir build-gcc-eabi && cd build-gcc-eabi
           ../gcc-$GCC_VER/configure \
-            --prefix=$PREFIX/arm-eabi-4.9 \
+            --prefix=$PREFIX/arm-eabi-4.7 \
             --target=$TARGET_EABI \
             --host=$HOST \
             --build=x86_64-linux-gnu \
@@ -73,50 +114,89 @@ jobs:
           make -j$(nproc) all-target-libgcc
           make install-target-libgcc
 
-      - name: Build binutils (arm-linux-androideabi)
+      - name: Bundle glibc alongside toolchain
         run: |
-          mkdir build-binutils-android && cd build-binutils-android
-          ../binutils-$BINUTILS_VER/configure \
-            --prefix=$PREFIX/arm-linux-androideabi-4.9 \
-            --target=$TARGET_ANDROID \
-            --host=$HOST \
-            --build=x86_64-linux-gnu \
-            --disable-nls \
-            --disable-multilib \
-            --disable-werror
-          make -j$(nproc)
-          make install
+          # Copy the glibc libs the toolchain binaries need
+          GLIBC_DIR=$PREFIX/glibc
+          mkdir -p $GLIBC_DIR
 
-      - name: Build GCC (arm-linux-androideabi)
+          # Find and copy all needed shared libs for each binary
+          for bin in \
+            $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc \
+            $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-g++ \
+            $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-as \
+            $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-ld \
+            $PREFIX/arm-eabi-4.7/bin/arm-eabi-gcc \
+            $PREFIX/arm-eabi-4.7/bin/arm-eabi-g++ \
+            $PREFIX/arm-eabi-4.7/bin/arm-eabi-as \
+            $PREFIX/arm-eabi-4.7/bin/arm-eabi-ld; do
+            if [ -f "$bin" ]; then
+              ldd "$bin" | awk '{print $3}' | grep '^/' | while read lib; do
+                cp -n "$lib" $GLIBC_DIR/ 2>/dev/null || true
+              done
+            fi
+          done
+
+          # Copy the dynamic linker
+          cp /lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 $GLIBC_DIR/
+          ls $GLIBC_DIR/
+
+      - name: Patch binaries to use bundled glibc
         run: |
-          mkdir build-gcc-android && cd build-gcc-android
-          ../gcc-$GCC_VER/configure \
-            --prefix=$PREFIX/arm-linux-androideabi-4.9 \
-            --target=$TARGET_ANDROID \
-            --host=$HOST \
-            --build=x86_64-linux-gnu \
-            --enable-languages=c,c++ \
-            --disable-nls \
-            --disable-multilib \
-            --disable-shared \
-            --with-arch=armv7-a \
-            --with-float=softfp \
-            --with-fpu=vfpv3-d16 \
-            --disable-werror
-          make -j$(nproc) all-gcc
-          make install-gcc
-          make -j$(nproc) all-target-libgcc
-          make install-target-libgcc
+          GLIBC_DIR=$PREFIX/glibc
+          INTERP=$GLIBC_DIR/ld-linux-aarch64.so.1
+
+          for bin in \
+            $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc \
+            $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-g++ \
+            $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-as \
+            $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-ld \
+            $PREFIX/arm-eabi-4.7/bin/arm-eabi-gcc \
+            $PREFIX/arm-eabi-4.7/bin/arm-eabi-g++ \
+            $PREFIX/arm-eabi-4.7/bin/arm-eabi-as \
+            $PREFIX/arm-eabi-4.7/bin/arm-eabi-ld; do
+            if [ -f "$bin" ]; then
+              patchelf --set-interpreter $INTERP \
+                       --set-rpath $GLIBC_DIR \
+                       "$bin" && echo "patched $bin" || true
+            fi
+          done
+
+      - name: Create launcher wrappers
+        run: |
+          # Replace each binary with a wrapper that sets LD_LIBRARY_PATH
+          GLIBC_DIR=$PREFIX/glibc
+
+          for toolchain in arm-linux-androideabi-4.7 arm-eabi-4.7; do
+            BINDIR=$PREFIX/$toolchain/bin
+            for bin in $BINDIR/*; do
+              [ -f "$bin" ] && [ ! -L "$bin" ] || continue
+              real="$bin.real"
+              mv "$bin" "$real"
+              cat > "$bin" <<WRAPPER
+          #!/bin/sh
+          export LD_LIBRARY_PATH="$GLIBC_DIR:\$LD_LIBRARY_PATH"
+          exec "$real" "\$@"
+          WRAPPER
+              chmod +x "$bin"
+            done
+          done
+
+      - name: Verify
+        run: |
+          $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc --version
+          $PREFIX/arm-eabi-4.7/bin/arm-eabi-gcc --version
+          file $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc.real
 
       - name: Package toolchain
         run: |
           cd $HOME
-          tar cJf toolchain-aarch64-android.tar.xz toolchain-aarch64/
-          ls -lh toolchain-aarch64-android.tar.xz
+          tar cJf toolchain-aarch64-cm11.tar.xz toolchain-aarch64/
+          ls -lh toolchain-aarch64-cm11.tar.xz
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: toolchain-aarch64-android
-          path: ~/toolchain-aarch64-android.tar.xz
-          retention-days: 7
+          name: toolchain-aarch64-cm11
+          path: ~/toolchain-aarch64-cm11.tar.xz
+          retention-days: 30
