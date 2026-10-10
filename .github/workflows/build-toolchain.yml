@@ -27,10 +27,10 @@ jobs:
           echo "TARGET_ANDROID=arm-linux-androideabi" >> $GITHUB_ENV
           echo "TARGET_EABI=arm-eabi" >> $GITHUB_ENV
           echo "HOST=aarch64-linux-gnu" >> $GITHUB_ENV
-          echo "CC=aarch64-linux-gnu-gcc-7" >> $GITHUB_ENV
-          echo "CXX=aarch64-linux-gnu-g++-7" >> $GITHUB_ENV
-          echo "CC=aarch64-linux-gnu-gcc-7" >> $GITHUB_ENV
-          echo "CXX=aarch64-linux-gnu-g++-7" >> $GITHUB_ENV
+          echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CXX=aarch64-linux-gnu-g++" >> $GITHUB_ENV
+          echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CXX=aarch64-linux-gnu-g++" >> $GITHUB_ENV
           echo "PREFIX=$HOME/toolchain-aarch64" >> $GITHUB_ENV
 
       - name: Download sources
