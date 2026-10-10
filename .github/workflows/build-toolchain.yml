@@ -90,8 +90,8 @@ jobs:
             --disable-nls --disable-multilib --disable-shared \
             --disable-libssp --disable-libgomp --disable-libmudflap \
             --with-arch=armv7-a --with-float=softfp --with-fpu=vfpv3-d16 \
-            --with-gnu-as --with-gnu-ld --disable-werror
-          make -j$(nproc) all-gcc CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
+            --with-gnu-as --with-gnu-ld --disable-werror             --disable-doc --disable-docs --disable-info             --disable-build-format-warnings             --disable-bootstrap             --disable-libstdcxx-pch             --disable-plugin             --disable-lto             --with-system-zlib             MAKEINFO=missing
+          make -j$(nproc) all-gcc MAKEINFO=missing CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
           make install-gcc
           make -j$(nproc) all-target-libgcc CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
           make install-target-libgcc
@@ -119,8 +119,8 @@ jobs:
             --enable-languages=c,c++ \
             --disable-nls --disable-multilib --disable-shared \
             --disable-threads --disable-libssp --disable-libgomp --disable-libmudflap \
-            --without-headers --with-newlib --disable-werror
-          make -j$(nproc) all-gcc CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
+            --without-headers --with-newlib --disable-werror             --disable-doc --disable-docs --disable-info             --disable-build-format-warnings             --disable-bootstrap             --disable-libstdcxx-pch             --disable-plugin             --disable-lto             MAKEINFO=missing
+          make -j$(nproc) all-gcc MAKEINFO=missing CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
           make install-gcc
           make -j$(nproc) all-target-libgcc CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
           make install-target-libgcc
