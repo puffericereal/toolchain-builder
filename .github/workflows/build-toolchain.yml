@@ -35,6 +35,19 @@ jobs:
           tar xf gcc-$GCC_VER.tar.gz
           cd gcc-$GCC_VER && ./contrib/download_prerequisites
 
+
+      - name: Patch config.sub and config.guess for aarch64
+        run: |
+          # Download modern config.sub and config.guess that know aarch64
+          wget -q 'https://git.savannah.gnu.org/cgit/config.git/plain/config.sub' -O config.sub.new
+          wget -q 'https://git.savannah.gnu.org/cgit/config.git/plain/config.guess' -O config.guess.new
+          # Patch gcc and binutils
+          for dir in gcc-$GCC_VER binutils-$BINUTILS_VER; do
+            find $dir -name 'config.sub' -exec cp config.sub.new {} \;
+            find $dir -name 'config.guess' -exec cp config.guess.new {} \;
+          done
+          echo "patched config.sub and config.guess"
+
       - name: Build binutils (arm-linux-androideabi)
         run: |
           mkdir build-binutils-android && cd build-binutils-android
