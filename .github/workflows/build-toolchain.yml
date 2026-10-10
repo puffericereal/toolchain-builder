@@ -15,36 +15,40 @@ jobs:
           apt-get update
           apt-get install -y \
             build-essential \
+            gcc g++ \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
             libgmp-dev libmpfr-dev libmpc-dev \
             libisl-dev \
             flex bison texinfo \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
             curl wget git zip patchelf \
-            ca-certificates
+            ca-certificates xz-utils
 
       - name: Verify host compiler
         run: |
           aarch64-linux-gnu-gcc --version
           aarch64-linux-gnu-g++ --version
 
-      - name: Set versions
+      - name: Set env
         run: |
-          echo "BINUTILS_VER=2.27" >> $GITHUB_ENV
-          echo "GCC_VER=4.7.4" >> $GITHUB_ENV
+          echo "BINUTILS_VER=2.27"            >> $GITHUB_ENV
+          echo "GCC_VER=4.7.4"                >> $GITHUB_ENV
           echo "TARGET_ANDROID=arm-linux-androideabi" >> $GITHUB_ENV
-          echo "TARGET_EABI=arm-eabi" >> $GITHUB_ENV
-          echo "HOST=aarch64-linux-gnu" >> $GITHUB_ENV
-          echo "PREFIX=/root/toolchain-aarch64" >> $GITHUB_ENV
-          echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          echo "CXX=aarch64-linux-gnu-g++" >> $GITHUB_ENV
+          echo "TARGET_EABI=arm-eabi"         >> $GITHUB_ENV
+          echo "HOST=aarch64-linux-gnu"       >> $GITHUB_ENV
+          echo "PREFIX=/root/tc"              >> $GITHUB_ENV
+          echo "CC=aarch64-linux-gnu-gcc"     >> $GITHUB_ENV
+          echo "CXX=aarch64-linux-gnu-g++"    >> $GITHUB_ENV
+          echo "AR=aarch64-linux-gnu-ar"      >> $GITHUB_ENV
+          echo "RANLIB=aarch64-linux-gnu-ranlib" >> $GITHUB_ENV
 
       - name: Download sources
         run: |
-          wget -q https://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS_VER.tar.gz
-          wget -q https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VER/gcc-$GCC_VER.tar.gz
-          tar xf binutils-$BINUTILS_VER.tar.gz
-          tar xf gcc-$GCC_VER.tar.gz
-          cd gcc-$GCC_VER && ./contrib/download_prerequisites
+          wget -q https://ftp.gnu.org/gnu/binutils/binutils-2.27.tar.gz
+          wget -q https://ftp.gnu.org/gnu/gcc/gcc-4.7.4/gcc-4.7.4.tar.gz
+          tar xf binutils-2.27.tar.gz
+          tar xf gcc-4.7.4.tar.gz
+          cd gcc-4.7.4 && ./contrib/download_prerequisites
 
       - name: Patch config.sub and config.guess for aarch64
         run: |
@@ -52,34 +56,48 @@ jobs:
             -O config.sub.new
           wget -q 'https://git.savannah.gnu.org/cgit/config.git/plain/config.guess' \
             -O config.guess.new
-          for dir in gcc-$GCC_VER binutils-$BINUTILS_VER; do
+          for dir in gcc-4.7.4 binutils-2.27; do
             find $dir -name 'config.sub'   -exec cp config.sub.new   {} \;
             find $dir -name 'config.guess' -exec cp config.guess.new {} \;
           done
           echo "patched"
 
+      - name: Patch GCC 4.7 for modern host compiler
+        run: |
+          cd gcc-4.7.4
+          # Fix: error: 'struct siginfo' has no member named 'si_utime'
+          sed -i 's/sa.sa_flags = SA_SIGINFO/sa.sa_flags = 0/g' \
+            gcc/collect2.c 2>/dev/null || true
+          # Fix: conflicting declaration with glibc 2.26+
+          sed -i '/#include <unistd.h>/a #undef HAVE_DECL_STPCPY' \
+            libiberty/stpcpy.c 2>/dev/null || true
+          # Fix: strict aliasing in fixincludes
+          sed -i 's/-Werror//' fixincludes/Makefile.in 2>/dev/null || true
+          echo "patched gcc 4.7.4 for modern host"
+
       - name: Build binutils (arm-linux-androideabi)
         run: |
-          mkdir build-binutils-android && cd build-binutils-android
-          ../binutils-$BINUTILS_VER/configure \
-            --prefix=$PREFIX/arm-linux-androideabi-4.7 \
-            --target=$TARGET_ANDROID \
-            --host=$HOST \
+          mkdir -p build-binutils-android && cd build-binutils-android
+          ../binutils-2.27/configure \
+            --prefix=/root/tc/arm-linux-androideabi-4.7 \
+            --target=arm-linux-androideabi \
+            --host=aarch64-linux-gnu \
             --build=x86_64-linux-gnu \
             --disable-nls \
             --disable-multilib \
             --disable-werror \
             --with-sysroot
-          make -j$(nproc) CC=$CC CXX=$CXX
+          make -j$(nproc) CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
           make install
 
       - name: Build GCC (arm-linux-androideabi)
         run: |
-          mkdir build-gcc-android && cd build-gcc-android
-          ../gcc-$GCC_VER/configure \
-            --prefix=$PREFIX/arm-linux-androideabi-4.7 \
-            --target=$TARGET_ANDROID \
-            --host=$HOST \
+          mkdir -p build-gcc-android && cd build-gcc-android
+          ../gcc-4.7.4/configure \
+            --prefix=/root/tc/arm-linux-androideabi-4.7 \
+            --target=arm-linux-androideabi \
+            --host=aarch64-linux-gnu \
             --build=x86_64-linux-gnu \
             --enable-languages=c,c++ \
             --disable-nls \
@@ -93,33 +111,45 @@ jobs:
             --with-fpu=vfpv3-d16 \
             --with-gnu-as \
             --with-gnu-ld \
-            --disable-werror
-          make -j$(nproc) all-gcc CC=$CC CXX=$CXX
+            --disable-werror \
+            --with-gmp=/usr \
+            --with-mpfr=/usr \
+            --with-mpc=/usr
+          make -j$(nproc) all-gcc \
+            CC=aarch64-linux-gnu-gcc \
+            CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar \
+            RANLIB=aarch64-linux-gnu-ranlib
           make install-gcc
-          make -j$(nproc) all-target-libgcc
+          make -j$(nproc) all-target-libgcc \
+            CC=aarch64-linux-gnu-gcc \
+            CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar \
+            RANLIB=aarch64-linux-gnu-ranlib
           make install-target-libgcc
 
       - name: Build binutils (arm-eabi)
         run: |
-          mkdir build-binutils-eabi && cd build-binutils-eabi
-          ../binutils-$BINUTILS_VER/configure \
-            --prefix=$PREFIX/arm-eabi-4.7 \
-            --target=$TARGET_EABI \
-            --host=$HOST \
+          mkdir -p build-binutils-eabi && cd build-binutils-eabi
+          ../binutils-2.27/configure \
+            --prefix=/root/tc/arm-eabi-4.7 \
+            --target=arm-eabi \
+            --host=aarch64-linux-gnu \
             --build=x86_64-linux-gnu \
             --disable-nls \
             --disable-multilib \
             --disable-werror
-          make -j$(nproc) CC=$CC CXX=$CXX
+          make -j$(nproc) CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
           make install
 
       - name: Build GCC (arm-eabi)
         run: |
-          mkdir build-gcc-eabi && cd build-gcc-eabi
-          ../gcc-$GCC_VER/configure \
-            --prefix=$PREFIX/arm-eabi-4.7 \
-            --target=$TARGET_EABI \
-            --host=$HOST \
+          mkdir -p build-gcc-eabi && cd build-gcc-eabi
+          ../gcc-4.7.4/configure \
+            --prefix=/root/tc/arm-eabi-4.7 \
+            --target=arm-eabi \
+            --host=aarch64-linux-gnu \
             --build=x86_64-linux-gnu \
             --enable-languages=c,c++ \
             --disable-nls \
@@ -131,84 +161,93 @@ jobs:
             --disable-libmudflap \
             --without-headers \
             --with-newlib \
-            --disable-werror
-          make -j$(nproc) all-gcc CC=$CC CXX=$CXX
+            --disable-werror \
+            --with-gmp=/usr \
+            --with-mpfr=/usr \
+            --with-mpc=/usr
+          make -j$(nproc) all-gcc \
+            CC=aarch64-linux-gnu-gcc \
+            CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar \
+            RANLIB=aarch64-linux-gnu-ranlib
           make install-gcc
-          make -j$(nproc) all-target-libgcc
+          make -j$(nproc) all-target-libgcc \
+            CC=aarch64-linux-gnu-gcc \
+            CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar \
+            RANLIB=aarch64-linux-gnu-ranlib
           make install-target-libgcc
 
       - name: Bundle glibc alongside toolchain
         run: |
-          GLIBC_DIR=$PREFIX/glibc
+          GLIBC_DIR=/root/tc/glibc
           mkdir -p $GLIBC_DIR
           for bin in \
-            $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc \
-            $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-g++ \
-            $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-as \
-            $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-ld \
-            $PREFIX/arm-eabi-4.7/bin/arm-eabi-gcc \
-            $PREFIX/arm-eabi-4.7/bin/arm-eabi-g++ \
-            $PREFIX/arm-eabi-4.7/bin/arm-eabi-as \
-            $PREFIX/arm-eabi-4.7/bin/arm-eabi-ld; do
-            if [ -f "$bin" ]; then
-              ldd "$bin" | awk '{print $3}' | grep '^/' | while read lib; do
-                cp -n "$lib" $GLIBC_DIR/ 2>/dev/null || true
-              done
-            fi
+            /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc \
+            /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-g++ \
+            /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-as \
+            /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-ld \
+            /root/tc/arm-eabi-4.7/bin/arm-eabi-gcc \
+            /root/tc/arm-eabi-4.7/bin/arm-eabi-g++ \
+            /root/tc/arm-eabi-4.7/bin/arm-eabi-as \
+            /root/tc/arm-eabi-4.7/bin/arm-eabi-ld; do
+            [ -f "$bin" ] || continue
+            ldd "$bin" | awk '{print $3}' | grep '^/' | while read lib; do
+              cp -n "$lib" $GLIBC_DIR/ 2>/dev/null || true
+            done
           done
-          find /lib/aarch64-linux-gnu /lib -name 'ld-linux-aarch64*' \
+          # Copy dynamic linker
+          find /lib -name 'ld-linux-aarch64*' \
             -exec cp {} $GLIBC_DIR/ \; 2>/dev/null || true
-          ls $GLIBC_DIR/
+          find /lib/aarch64-linux-gnu -name 'ld-linux-aarch64*' \
+            -exec cp {} $GLIBC_DIR/ \; 2>/dev/null || true
+          echo "bundled libs:"; ls $GLIBC_DIR/
 
       - name: Patch binaries to use bundled glibc
         run: |
-          GLIBC_DIR=$PREFIX/glibc
+          GLIBC_DIR=/root/tc/glibc
           INTERP=$(find $GLIBC_DIR -name 'ld-linux-aarch64*' | head -1)
-          echo "using interpreter: $INTERP"
+          echo "interpreter: $INTERP"
           for bin in \
-            $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc \
-            $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-g++ \
-            $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-as \
-            $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-ld \
-            $PREFIX/arm-eabi-4.7/bin/arm-eabi-gcc \
-            $PREFIX/arm-eabi-4.7/bin/arm-eabi-g++ \
-            $PREFIX/arm-eabi-4.7/bin/arm-eabi-as \
-            $PREFIX/arm-eabi-4.7/bin/arm-eabi-ld; do
-            if [ -f "$bin" ]; then
-              patchelf --set-interpreter $INTERP \
-                       --set-rpath $GLIBC_DIR \
-                       "$bin" && echo "patched $bin" || true
-            fi
+            /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc \
+            /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-g++ \
+            /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-as \
+            /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-ld \
+            /root/tc/arm-eabi-4.7/bin/arm-eabi-gcc \
+            /root/tc/arm-eabi-4.7/bin/arm-eabi-g++ \
+            /root/tc/arm-eabi-4.7/bin/arm-eabi-as \
+            /root/tc/arm-eabi-4.7/bin/arm-eabi-ld; do
+            [ -f "$bin" ] || continue
+            patchelf --set-interpreter "$INTERP" \
+                     --set-rpath "$GLIBC_DIR" \
+                     "$bin" && echo "patched: $bin" || true
           done
 
       - name: Create launcher wrappers
         run: |
-          GLIBC_DIR=$PREFIX/glibc
+          GLIBC_DIR=/root/tc/glibc
           for toolchain in arm-linux-androideabi-4.7 arm-eabi-4.7; do
-            BINDIR=$PREFIX/$toolchain/bin
+            BINDIR=/root/tc/$toolchain/bin
             for bin in $BINDIR/*; do
               [ -f "$bin" ] && [ ! -L "$bin" ] || continue
-              real="$bin.real"
+              real="${bin}.real"
               mv "$bin" "$real"
-              cat > "$bin" <<WRAPPER
-#!/bin/sh
-export LD_LIBRARY_PATH="$GLIBC_DIR:\$LD_LIBRARY_PATH"
-exec "$real" "\$@"
-WRAPPER
+              printf '#!/bin/sh\nexport LD_LIBRARY_PATH="%s:$LD_LIBRARY_PATH"\nexec "%s" "$@"\n' \
+                "$GLIBC_DIR" "$real" > "$bin"
               chmod +x "$bin"
             done
           done
 
       - name: Verify
         run: |
-          $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc --version
-          $PREFIX/arm-eabi-4.7/bin/arm-eabi-gcc --version
-          file $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc.real
+          /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc --version
+          /root/tc/arm-eabi-4.7/bin/arm-eabi-gcc --version
+          file /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc.real
 
-      - name: Package toolchain
+      - name: Package
         run: |
           cd /root
-          tar cJf toolchain-aarch64-cm11.tar.xz toolchain-aarch64/
+          tar cJf toolchain-aarch64-cm11.tar.xz tc/
           ls -lh toolchain-aarch64-cm11.tar.xz
 
       - name: Upload artifact
