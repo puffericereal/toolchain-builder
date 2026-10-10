@@ -6,19 +6,26 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    container:
+      image: ubuntu:18.04
+
     steps:
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential gcc g++ make \
+          apt-get update
+          apt-get install -y \
+            build-essential \
             libgmp-dev libmpfr-dev libmpc-dev \
             libisl-dev \
             flex bison texinfo \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
             curl wget git zip patchelf \
-            gcc-7-aarch64-linux-gnu g++-7-aarch64-linux-gnu \
-            gcc-7-aarch64-linux-gnu g++-7-aarch64-linux-gnu
+            ca-certificates
+
+      - name: Verify host compiler
+        run: |
+          aarch64-linux-gnu-gcc --version
+          aarch64-linux-gnu-g++ --version
 
       - name: Set versions
         run: |
@@ -27,11 +34,9 @@ jobs:
           echo "TARGET_ANDROID=arm-linux-androideabi" >> $GITHUB_ENV
           echo "TARGET_EABI=arm-eabi" >> $GITHUB_ENV
           echo "HOST=aarch64-linux-gnu" >> $GITHUB_ENV
+          echo "PREFIX=/root/toolchain-aarch64" >> $GITHUB_ENV
           echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
           echo "CXX=aarch64-linux-gnu-g++" >> $GITHUB_ENV
-          echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          echo "CXX=aarch64-linux-gnu-g++" >> $GITHUB_ENV
-          echo "PREFIX=$HOME/toolchain-aarch64" >> $GITHUB_ENV
 
       - name: Download sources
         run: |
@@ -41,18 +46,17 @@ jobs:
           tar xf gcc-$GCC_VER.tar.gz
           cd gcc-$GCC_VER && ./contrib/download_prerequisites
 
-
       - name: Patch config.sub and config.guess for aarch64
         run: |
-          # Download modern config.sub and config.guess that know aarch64
-          wget -q 'https://git.savannah.gnu.org/cgit/config.git/plain/config.sub' -O config.sub.new
-          wget -q 'https://git.savannah.gnu.org/cgit/config.git/plain/config.guess' -O config.guess.new
-          # Patch gcc and binutils
+          wget -q 'https://git.savannah.gnu.org/cgit/config.git/plain/config.sub' \
+            -O config.sub.new
+          wget -q 'https://git.savannah.gnu.org/cgit/config.git/plain/config.guess' \
+            -O config.guess.new
           for dir in gcc-$GCC_VER binutils-$BINUTILS_VER; do
-            find $dir -name 'config.sub' -exec cp config.sub.new {} \;
+            find $dir -name 'config.sub'   -exec cp config.sub.new   {} \;
             find $dir -name 'config.guess' -exec cp config.guess.new {} \;
           done
-          echo "patched config.sub and config.guess"
+          echo "patched"
 
       - name: Build binutils (arm-linux-androideabi)
         run: |
@@ -66,7 +70,7 @@ jobs:
             --disable-multilib \
             --disable-werror \
             --with-sysroot
-          make -j$(nproc)
+          make -j$(nproc) CC=$CC CXX=$CXX
           make install
 
       - name: Build GCC (arm-linux-androideabi)
@@ -90,7 +94,7 @@ jobs:
             --with-gnu-as \
             --with-gnu-ld \
             --disable-werror
-          make -j$(nproc) all-gcc
+          make -j$(nproc) all-gcc CC=$CC CXX=$CXX
           make install-gcc
           make -j$(nproc) all-target-libgcc
           make install-target-libgcc
@@ -106,7 +110,7 @@ jobs:
             --disable-nls \
             --disable-multilib \
             --disable-werror
-          make -j$(nproc)
+          make -j$(nproc) CC=$CC CXX=$CXX
           make install
 
       - name: Build GCC (arm-eabi)
@@ -128,18 +132,15 @@ jobs:
             --without-headers \
             --with-newlib \
             --disable-werror
-          make -j$(nproc) all-gcc
+          make -j$(nproc) all-gcc CC=$CC CXX=$CXX
           make install-gcc
           make -j$(nproc) all-target-libgcc
           make install-target-libgcc
 
       - name: Bundle glibc alongside toolchain
         run: |
-          # Copy the glibc libs the toolchain binaries need
           GLIBC_DIR=$PREFIX/glibc
           mkdir -p $GLIBC_DIR
-
-          # Find and copy all needed shared libs for each binary
           for bin in \
             $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc \
             $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-g++ \
@@ -155,16 +156,15 @@ jobs:
               done
             fi
           done
-
-          # Copy the dynamic linker
-          cp /lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 $GLIBC_DIR/
+          find /lib/aarch64-linux-gnu /lib -name 'ld-linux-aarch64*' \
+            -exec cp {} $GLIBC_DIR/ \; 2>/dev/null || true
           ls $GLIBC_DIR/
 
       - name: Patch binaries to use bundled glibc
         run: |
           GLIBC_DIR=$PREFIX/glibc
-          INTERP=$GLIBC_DIR/ld-linux-aarch64.so.1
-
+          INTERP=$(find $GLIBC_DIR -name 'ld-linux-aarch64*' | head -1)
+          echo "using interpreter: $INTERP"
           for bin in \
             $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc \
             $PREFIX/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-g++ \
@@ -183,9 +183,7 @@ jobs:
 
       - name: Create launcher wrappers
         run: |
-          # Replace each binary with a wrapper that sets LD_LIBRARY_PATH
           GLIBC_DIR=$PREFIX/glibc
-
           for toolchain in arm-linux-androideabi-4.7 arm-eabi-4.7; do
             BINDIR=$PREFIX/$toolchain/bin
             for bin in $BINDIR/*; do
@@ -193,10 +191,10 @@ jobs:
               real="$bin.real"
               mv "$bin" "$real"
               cat > "$bin" <<WRAPPER
-          #!/bin/sh
-          export LD_LIBRARY_PATH="$GLIBC_DIR:\$LD_LIBRARY_PATH"
-          exec "$real" "\$@"
-          WRAPPER
+#!/bin/sh
+export LD_LIBRARY_PATH="$GLIBC_DIR:\$LD_LIBRARY_PATH"
+exec "$real" "\$@"
+WRAPPER
               chmod +x "$bin"
             done
           done
@@ -209,7 +207,7 @@ jobs:
 
       - name: Package toolchain
         run: |
-          cd $HOME
+          cd /root
           tar cJf toolchain-aarch64-cm11.tar.xz toolchain-aarch64/
           ls -lh toolchain-aarch64-cm11.tar.xz
 
@@ -217,5 +215,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: toolchain-aarch64-cm11
-          path: ~/toolchain-aarch64-cm11.tar.xz
+          path: /root/toolchain-aarch64-cm11.tar.xz
           retention-days: 30
