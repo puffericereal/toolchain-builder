@@ -90,8 +90,7 @@ jobs:
             --disable-nls --disable-multilib --disable-shared \
             --disable-libssp --disable-libgomp --disable-libmudflap \
             --with-arch=armv7-a --with-float=softfp --with-fpu=vfpv3-d16 \
-            --with-gnu-as --with-gnu-ld --disable-werror \
-            --with-gmp=/usr --with-mpfr=/usr --with-mpc=/usr
+            --with-gnu-as --with-gnu-ld --disable-werror
           make -j$(nproc) all-gcc CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
           make install-gcc
           make -j$(nproc) all-target-libgcc CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
@@ -120,8 +119,7 @@ jobs:
             --enable-languages=c,c++ \
             --disable-nls --disable-multilib --disable-shared \
             --disable-threads --disable-libssp --disable-libgomp --disable-libmudflap \
-            --without-headers --with-newlib --disable-werror \
-            --with-gmp=/usr --with-mpfr=/usr --with-mpc=/usr
+            --without-headers --with-newlib --disable-werror
           make -j$(nproc) all-gcc CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
           make install-gcc
           make -j$(nproc) all-target-libgcc CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
