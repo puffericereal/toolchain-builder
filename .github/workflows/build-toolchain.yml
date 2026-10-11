@@ -33,7 +33,7 @@ jobs:
       - name: Set env
         run: |
           echo "BINUTILS_VER=2.27"                    >> $GITHUB_ENV
-          echo "GCC_VER=4.7.4"                        >> $GITHUB_ENV
+          echo "GCC_VER=4.9.4"                        >> $GITHUB_ENV
           echo "TARGET_ANDROID=arm-linux-androideabi" >> $GITHUB_ENV
           echo "TARGET_EABI=arm-eabi"                 >> $GITHUB_ENV
           echo "HOST=aarch64-linux-gnu"               >> $GITHUB_ENV
@@ -46,23 +46,23 @@ jobs:
       - name: Download sources
         run: |
           wget -q https://ftp.gnu.org/gnu/binutils/binutils-2.27.tar.gz
-          wget -q https://ftp.gnu.org/gnu/gcc/gcc-4.7.4/gcc-4.7.4.tar.gz
+          wget -q https://ftp.gnu.org/gnu/gcc/gcc-4.9.4/gcc-4.9.4.tar.gz
           tar xf binutils-2.27.tar.gz
-          tar xf gcc-4.7.4.tar.gz
-          cd gcc-4.7.4 && ./contrib/download_prerequisites
+          tar xf gcc-4.9.4.tar.gz
+          cd gcc-4.9.4 && ./contrib/download_prerequisites
 
       - name: Patch config for aarch64
         run: |
           wget -q 'https://git.savannah.gnu.org/cgit/config.git/plain/config.sub' -O config.sub.new
           wget -q 'https://git.savannah.gnu.org/cgit/config.git/plain/config.guess' -O config.guess.new
-          for dir in gcc-4.7.4 binutils-2.27; do
+          for dir in gcc-4.9.4 binutils-2.27; do
             find $dir -name 'config.sub'   -exec cp config.sub.new   {} \;
             find $dir -name 'config.guess' -exec cp config.guess.new {} \;
           done
 
       - name: Patch GCC 4.7 for modern host
         run: |
-          cd gcc-4.7.4
+          cd gcc-4.9.4
           sed -i 's/sa.sa_flags = SA_SIGINFO/sa.sa_flags = 0/g' gcc/collect2.c 2>/dev/null || true
           sed -i 's/-Werror//' fixincludes/Makefile.in 2>/dev/null || true
 
@@ -70,7 +70,7 @@ jobs:
         run: |
           mkdir build-binutils-android && cd build-binutils-android
           ../binutils-2.27/configure \
-            --prefix=/root/tc/arm-linux-androideabi-4.7 \
+            --prefix=/root/tc/arm-linux-androideabi-4.9 \
             --target=arm-linux-androideabi \
             --host=aarch64-linux-gnu \
             --build=x86_64-linux-gnu \
@@ -81,8 +81,8 @@ jobs:
       - name: Build GCC arm-linux-androideabi
         run: |
           mkdir build-gcc-android && cd build-gcc-android
-          ../gcc-4.7.4/configure \
-            --prefix=/root/tc/arm-linux-androideabi-4.7 \
+          ../gcc-4.9.4/configure \
+            --prefix=/root/tc/arm-linux-androideabi-4.9 \
             --target=arm-linux-androideabi \
             --host=aarch64-linux-gnu \
             --build=x86_64-linux-gnu \
@@ -100,7 +100,7 @@ jobs:
         run: |
           mkdir build-binutils-eabi && cd build-binutils-eabi
           ../binutils-2.27/configure \
-            --prefix=/root/tc/arm-eabi-4.7 \
+            --prefix=/root/tc/arm-eabi-4.9 \
             --target=arm-eabi \
             --host=aarch64-linux-gnu \
             --build=x86_64-linux-gnu \
@@ -111,8 +111,8 @@ jobs:
       - name: Build GCC arm-eabi
         run: |
           mkdir build-gcc-eabi && cd build-gcc-eabi
-          ../gcc-4.7.4/configure \
-            --prefix=/root/tc/arm-eabi-4.7 \
+          ../gcc-4.9.4/configure \
+            --prefix=/root/tc/arm-eabi-4.9 \
             --target=arm-eabi \
             --host=aarch64-linux-gnu \
             --build=x86_64-linux-gnu \
@@ -130,14 +130,14 @@ jobs:
           GLIBC_DIR=/root/tc/glibc
           mkdir -p $GLIBC_DIR
           for bin in \
-            /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc \
-            /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-g++ \
-            /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-as \
-            /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-ld \
-            /root/tc/arm-eabi-4.7/bin/arm-eabi-gcc \
-            /root/tc/arm-eabi-4.7/bin/arm-eabi-g++ \
-            /root/tc/arm-eabi-4.7/bin/arm-eabi-as \
-            /root/tc/arm-eabi-4.7/bin/arm-eabi-ld; do
+            /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-gcc \
+            /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-g++ \
+            /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-as \
+            /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-ld \
+            /root/tc/arm-eabi-4.9/bin/arm-eabi-gcc \
+            /root/tc/arm-eabi-4.9/bin/arm-eabi-g++ \
+            /root/tc/arm-eabi-4.9/bin/arm-eabi-as \
+            /root/tc/arm-eabi-4.9/bin/arm-eabi-ld; do
             [ -f "$bin" ] || continue
             ldd "$bin" | awk '{print $3}' | grep '^/' | while read lib; do
               cp -n "$lib" $GLIBC_DIR/ 2>/dev/null || true
@@ -152,14 +152,14 @@ jobs:
           GLIBC_DIR=/root/tc/glibc
           INTERP=$(find $GLIBC_DIR -name 'ld-linux-aarch64*' | head -1)
           for bin in \
-            /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc \
-            /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-g++ \
-            /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-as \
-            /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-ld \
-            /root/tc/arm-eabi-4.7/bin/arm-eabi-gcc \
-            /root/tc/arm-eabi-4.7/bin/arm-eabi-g++ \
-            /root/tc/arm-eabi-4.7/bin/arm-eabi-as \
-            /root/tc/arm-eabi-4.7/bin/arm-eabi-ld; do
+            /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-gcc \
+            /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-g++ \
+            /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-as \
+            /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-ld \
+            /root/tc/arm-eabi-4.9/bin/arm-eabi-gcc \
+            /root/tc/arm-eabi-4.9/bin/arm-eabi-g++ \
+            /root/tc/arm-eabi-4.9/bin/arm-eabi-as \
+            /root/tc/arm-eabi-4.9/bin/arm-eabi-ld; do
             [ -f "$bin" ] || continue
             patchelf --set-interpreter "$INTERP" --set-rpath "$GLIBC_DIR" "$bin" || true
           done
@@ -167,7 +167,7 @@ jobs:
       - name: Create wrappers
         run: |
           GLIBC_DIR=/root/tc/glibc
-          for toolchain in arm-linux-androideabi-4.7 arm-eabi-4.7; do
+          for toolchain in arm-linux-androideabi-4.9 arm-eabi-4.9; do
             for bin in /root/tc/$toolchain/bin/*; do
               [ -f "$bin" ] && [ ! -L "$bin" ] || continue
               real="${bin}.real"
@@ -180,8 +180,8 @@ jobs:
 
       - name: Verify
         run: |
-          /root/tc/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc --version
-          /root/tc/arm-eabi-4.7/bin/arm-eabi-gcc --version
+          /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-gcc --version
+          /root/tc/arm-eabi-4.9/bin/arm-eabi-gcc --version
 
       - name: Package
         run: |
