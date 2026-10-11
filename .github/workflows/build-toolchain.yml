@@ -6,8 +6,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    container:
-      image: ubuntu:20.04
 
     steps:
       - name: Checkout
@@ -15,39 +13,26 @@ jobs:
 
       - name: Install dependencies
         run: |
-          apt-get update
-          apt-get install -y ca-certificates wget curl
-          dpkg --add-architecture arm64
-          printf '%s\n' \
-            'deb [arch=amd64] http://archive.ubuntu.com/ubuntu focal main restricted universe multiverse' \
-            'deb [arch=amd64] http://archive.ubuntu.com/ubuntu focal-updates main restricted universe multiverse' \
-            'deb [arch=amd64] http://security.ubuntu.com/ubuntu focal-security main restricted universe multiverse' \
-            'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal main restricted universe multiverse' \
-            'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal-updates main restricted universe multiverse' \
-            'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal-security main restricted universe multiverse' \
-            > /etc/apt/sources.list
-          apt-get update
-          apt-get install -y \
+          sudo apt-get update
+          sudo apt-get install -y \
             build-essential \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            libgmp-dev libmpfr-dev libmpc-dev libisl-dev \
-            libgmp-dev:arm64 libmpfr-dev:arm64 libmpc-dev:arm64 libisl-dev:arm64 \
-            zlib1g-dev zlib1g-dev:arm64 \
-            flex bison texinfo git zip patchelf xz-utils \
-            DEBIAN_FRONTEND=noninteractive
+            binutils-aarch64-linux-gnu \
+            libgmp-dev libmpfr-dev libmpc-dev \
+            zlib1g-dev \
+            flex bison texinfo \
+            git zip patchelf xz-utils \
+            qemu-user-static
 
       - name: Set env
         run: |
-          echo "BINUTILS_VER=2.27"                    >> $GITHUB_ENV
-          echo "GCC_VER=4.9.4"                        >> $GITHUB_ENV
-          echo "TARGET_ANDROID=arm-linux-androideabi" >> $GITHUB_ENV
-          echo "TARGET_EABI=arm-eabi"                 >> $GITHUB_ENV
-          echo "HOST=aarch64-linux-gnu"               >> $GITHUB_ENV
-          echo "PREFIX=/root/tc"                      >> $GITHUB_ENV
+          echo "PREFIX=$HOME/tc"                      >> $GITHUB_ENV
           echo "CC=aarch64-linux-gnu-gcc"             >> $GITHUB_ENV
           echo "CXX=aarch64-linux-gnu-g++"            >> $GITHUB_ENV
           echo "AR=aarch64-linux-gnu-ar"              >> $GITHUB_ENV
           echo "RANLIB=aarch64-linux-gnu-ranlib"      >> $GITHUB_ENV
+          echo "NM=aarch64-linux-gnu-nm"              >> $GITHUB_ENV
+          echo "STRIP=aarch64-linux-gnu-strip"        >> $GITHUB_ENV
 
       - name: Download sources
         run: |
@@ -65,147 +50,196 @@ jobs:
             find $dir -name 'config.sub'   -exec cp config.sub.new   {} \;
             find $dir -name 'config.guess' -exec cp config.guess.new {} \;
           done
-          echo "patched"
 
       - name: Patch GCC 4.9 for modern host
         run: |
           cd gcc-4.9.4
-          sed -i 's/sa.sa_flags = SA_SIGINFO/sa.sa_flags = 0/g' gcc/collect2.c 2>/dev/null || true
+          # Fix collect2.c siginfo issue
+          sed -i 's/sa.sa_flags = SA_SIGINFO/sa.sa_flags = 0/g' \
+            gcc/collect2.c 2>/dev/null || true
+          # Disable -Werror in fixincludes
           sed -i 's/-Werror//' fixincludes/Makefile.in 2>/dev/null || true
+          # Fix obsolete throw() specs in C++ that cause errors with GCC 9
+          sed -i 's/throw()//g' \
+            libstdc++-v3/libsupc++/exception 2>/dev/null || true
 
       - name: Build binutils arm-linux-androideabi
         run: |
           mkdir build-binutils-android && cd build-binutils-android
           ../binutils-2.27/configure \
-            --prefix=/root/tc/arm-linux-androideabi-4.9 \
+            --prefix=$HOME/tc/arm-linux-androideabi-4.9 \
             --target=arm-linux-androideabi \
             --host=aarch64-linux-gnu \
             --build=x86_64-linux-gnu \
-            --disable-nls --disable-multilib --disable-werror
+            --disable-nls \
+            --disable-multilib \
+            --disable-werror \
+            --with-sysroot
           make -j$(nproc) \
-            CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
-            AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
+            CC=aarch64-linux-gnu-gcc \
+            CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar \
+            RANLIB=aarch64-linux-gnu-ranlib
           make install
 
       - name: Add androideabi binutils to PATH
-        run: echo "/root/tc/arm-linux-androideabi-4.9/bin" >> $GITHUB_PATH
+        run: echo "$HOME/tc/arm-linux-androideabi-4.9/bin" >> $GITHUB_PATH
 
       - name: Build GCC arm-linux-androideabi
         run: |
           mkdir build-gcc-android && cd build-gcc-android
           ../gcc-4.9.4/configure \
-            --prefix=/root/tc/arm-linux-androideabi-4.9 \
+            --prefix=$HOME/tc/arm-linux-androideabi-4.9 \
             --target=arm-linux-androideabi \
             --host=aarch64-linux-gnu \
             --build=x86_64-linux-gnu \
             --enable-languages=c,c++ \
-            --disable-nls --disable-multilib --disable-shared \
-            --disable-libssp --disable-libgomp --disable-libmudflap \
-            --with-arch=armv7-a --with-float=softfp --with-fpu=vfpv3-d16 \
-            --with-gnu-as --with-gnu-ld \
-            --disable-werror \
-            --disable-docs \
+            --disable-nls \
+            --disable-multilib \
+            --disable-shared \
+            --disable-libssp \
+            --disable-libgomp \
+            --disable-libmudflap \
+            --disable-libquadmath \
+            --disable-libsanitizer \
             --disable-bootstrap \
             --disable-libstdcxx-pch \
             --disable-lto \
-            --with-system-zlib
-          make -j$(nproc) all-gcc MAKEINFO=missing \
-            CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
-            AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
+            --with-arch=armv7-a \
+            --with-float=softfp \
+            --with-fpu=vfpv3-d16 \
+            --with-gnu-as \
+            --with-gnu-ld \
+            --with-system-zlib \
+            --disable-werror
+          make -j$(nproc) all-gcc \
+            MAKEINFO=missing \
+            CFLAGS_FOR_BUILD="-O2" \
+            CXXFLAGS_FOR_BUILD="-O2" \
+            CC=aarch64-linux-gnu-gcc \
+            CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar \
+            RANLIB=aarch64-linux-gnu-ranlib
           make install-gcc
-          make -j$(nproc) all-target-libgcc MAKEINFO=missing \
-            CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
-            AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
+          make -j$(nproc) all-target-libgcc \
+            MAKEINFO=missing \
+            CC=aarch64-linux-gnu-gcc \
+            CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar \
+            RANLIB=aarch64-linux-gnu-ranlib
           make install-target-libgcc
 
       - name: Build binutils arm-eabi
         run: |
           mkdir build-binutils-eabi && cd build-binutils-eabi
           ../binutils-2.27/configure \
-            --prefix=/root/tc/arm-eabi-4.9 \
+            --prefix=$HOME/tc/arm-eabi-4.9 \
             --target=arm-eabi \
             --host=aarch64-linux-gnu \
             --build=x86_64-linux-gnu \
-            --disable-nls --disable-multilib --disable-werror
+            --disable-nls \
+            --disable-multilib \
+            --disable-werror
           make -j$(nproc) \
-            CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
-            AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
+            CC=aarch64-linux-gnu-gcc \
+            CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar \
+            RANLIB=aarch64-linux-gnu-ranlib
           make install
 
       - name: Add eabi binutils to PATH
-        run: echo "/root/tc/arm-eabi-4.9/bin" >> $GITHUB_PATH
+        run: echo "$HOME/tc/arm-eabi-4.9/bin" >> $GITHUB_PATH
 
       - name: Build GCC arm-eabi
         run: |
           mkdir build-gcc-eabi && cd build-gcc-eabi
           ../gcc-4.9.4/configure \
-            --prefix=/root/tc/arm-eabi-4.9 \
+            --prefix=$HOME/tc/arm-eabi-4.9 \
             --target=arm-eabi \
             --host=aarch64-linux-gnu \
             --build=x86_64-linux-gnu \
             --enable-languages=c,c++ \
-            --disable-nls --disable-multilib --disable-shared \
-            --disable-threads --disable-libssp --disable-libgomp --disable-libmudflap \
-            --without-headers --with-newlib \
-            --disable-werror \
-            --disable-docs \
+            --disable-nls \
+            --disable-multilib \
+            --disable-shared \
+            --disable-threads \
+            --disable-libssp \
+            --disable-libgomp \
+            --disable-libmudflap \
+            --disable-libquadmath \
+            --disable-libsanitizer \
             --disable-bootstrap \
             --disable-libstdcxx-pch \
-            --disable-lto
-          make -j$(nproc) all-gcc MAKEINFO=missing \
-            CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
-            AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
+            --disable-lto \
+            --without-headers \
+            --with-newlib \
+            --with-system-zlib \
+            --disable-werror
+          make -j$(nproc) all-gcc \
+            MAKEINFO=missing \
+            CFLAGS_FOR_BUILD="-O2" \
+            CXXFLAGS_FOR_BUILD="-O2" \
+            CC=aarch64-linux-gnu-gcc \
+            CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar \
+            RANLIB=aarch64-linux-gnu-ranlib
           make install-gcc
-          make -j$(nproc) all-target-libgcc MAKEINFO=missing \
-            CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
-            AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
+          make -j$(nproc) all-target-libgcc \
+            MAKEINFO=missing \
+            CC=aarch64-linux-gnu-gcc \
+            CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar \
+            RANLIB=aarch64-linux-gnu-ranlib
           make install-target-libgcc
 
       - name: Bundle glibc
         run: |
-          GLIBC_DIR=/root/tc/glibc
+          GLIBC_DIR=$HOME/tc/glibc
           mkdir -p $GLIBC_DIR
           for bin in \
-            /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-gcc \
-            /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-g++ \
-            /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-as \
-            /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-ld \
-            /root/tc/arm-eabi-4.9/bin/arm-eabi-gcc \
-            /root/tc/arm-eabi-4.9/bin/arm-eabi-g++ \
-            /root/tc/arm-eabi-4.9/bin/arm-eabi-as \
-            /root/tc/arm-eabi-4.9/bin/arm-eabi-ld; do
+            $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-gcc \
+            $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-g++ \
+            $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-as \
+            $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-ld \
+            $HOME/tc/arm-eabi-4.9/bin/arm-eabi-gcc \
+            $HOME/tc/arm-eabi-4.9/bin/arm-eabi-g++ \
+            $HOME/tc/arm-eabi-4.9/bin/arm-eabi-as \
+            $HOME/tc/arm-eabi-4.9/bin/arm-eabi-ld; do
             [ -f "$bin" ] || continue
             ldd "$bin" | awk '{print $3}' | grep '^/' | while read lib; do
               cp -n "$lib" $GLIBC_DIR/ 2>/dev/null || true
             done
           done
-          find /lib /lib/aarch64-linux-gnu -name 'ld-linux-aarch64*' \
+          # Copy dynamic linker
+          find /lib/x86_64-linux-gnu /lib64 -name 'ld-linux-x86-64*' \
             -exec cp {} $GLIBC_DIR/ \; 2>/dev/null || true
-          ls $GLIBC_DIR/
+          echo "bundled:"; ls $GLIBC_DIR/
 
       - name: Patch binaries
         run: |
-          GLIBC_DIR=/root/tc/glibc
-          INTERP=$(find $GLIBC_DIR -name 'ld-linux-aarch64*' | head -1)
+          GLIBC_DIR=$HOME/tc/glibc
+          INTERP=$(find /lib/x86_64-linux-gnu /lib64 -name 'ld-linux-x86-64*' 2>/dev/null | head -1)
           echo "interpreter: $INTERP"
           for bin in \
-            /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-gcc \
-            /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-g++ \
-            /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-as \
-            /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-ld \
-            /root/tc/arm-eabi-4.9/bin/arm-eabi-gcc \
-            /root/tc/arm-eabi-4.9/bin/arm-eabi-g++ \
-            /root/tc/arm-eabi-4.9/bin/arm-eabi-as \
-            /root/tc/arm-eabi-4.9/bin/arm-eabi-ld; do
+            $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-gcc \
+            $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-g++ \
+            $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-as \
+            $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-ld \
+            $HOME/tc/arm-eabi-4.9/bin/arm-eabi-gcc \
+            $HOME/tc/arm-eabi-4.9/bin/arm-eabi-g++ \
+            $HOME/tc/arm-eabi-4.9/bin/arm-eabi-as \
+            $HOME/tc/arm-eabi-4.9/bin/arm-eabi-ld; do
             [ -f "$bin" ] || continue
-            patchelf --set-interpreter "$INTERP" --set-rpath "$GLIBC_DIR" "$bin" || true
+            patchelf --set-interpreter "$INTERP" \
+                     --set-rpath "$GLIBC_DIR" \
+                     "$bin" && echo "patched: $(basename $bin)" || true
           done
 
       - name: Create wrappers
         run: |
-          GLIBC_DIR=/root/tc/glibc
+          GLIBC_DIR=$HOME/tc/glibc
           for toolchain in arm-linux-androideabi-4.9 arm-eabi-4.9; do
-            for bin in /root/tc/$toolchain/bin/*; do
+            for bin in $HOME/tc/$toolchain/bin/*; do
               [ -f "$bin" ] && [ ! -L "$bin" ] || continue
               real="${bin}.real"
               mv "$bin" "$real"
@@ -217,12 +251,13 @@ jobs:
 
       - name: Verify
         run: |
-          /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-gcc --version
-          /root/tc/arm-eabi-4.9/bin/arm-eabi-gcc --version
+          $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-gcc --version
+          $HOME/tc/arm-eabi-4.9/bin/arm-eabi-gcc --version
+          file $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-gcc.real
 
       - name: Package
         run: |
-          cd /root
+          cd $HOME
           tar cJf toolchain-aarch64-cm11.tar.xz tc/
           ls -lh toolchain-aarch64-cm11.tar.xz
 
@@ -230,5 +265,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: toolchain-aarch64-cm11
-          path: /root/toolchain-aarch64-cm11.tar.xz
+          path: ~/toolchain-aarch64-cm11.tar.xz
           retention-days: 30
