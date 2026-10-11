@@ -18,6 +18,7 @@ jobs:
             build-essential \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
             binutils-aarch64-linux-gnu \
+            libc6-dev-arm64-cross \
             libgmp-dev libmpfr-dev libmpc-dev \
             zlib1g-dev \
             flex bison texinfo \
@@ -40,7 +41,11 @@ jobs:
           wget -q https://ftp.gnu.org/gnu/gcc/gcc-4.9.4/gcc-4.9.4.tar.gz
           tar xf binutils-2.27.tar.gz
           tar xf gcc-4.9.4.tar.gz
-          cd gcc-4.9.4 && ./contrib/download_prerequisites
+          cd gcc-4.9.4 
+          ./contrib/download_prerequisites
+          # Fix timestamp skew on downloaded prerequisites to prevent flex errors
+          touch gmp/configure mpfr/configure mpc/configure 2>/dev/null || true
+          cd ..
 
       - name: Patch config for aarch64
         run: |
@@ -59,7 +64,7 @@ jobs:
             gcc/collect2.c 2>/dev/null || true
           # Disable -Werror in fixincludes
           sed -i 's/-Werror//' fixincludes/Makefile.in 2>/dev/null || true
-          # Fix obsolete throw() specs in C++ that cause errors with GCC 9
+          # Fix obsolete throw() specs in C++ that cause errors with GCC 9+
           sed -i 's/throw()//g' \
             libstdc++-v3/libsupc++/exception 2>/dev/null || true
 
@@ -196,34 +201,27 @@ jobs:
             RANLIB=aarch64-linux-gnu-ranlib
           make install-target-libgcc
 
-      - name: Bundle glibc
+      - name: Bundle aarch64 glibc
         run: |
           GLIBC_DIR=$HOME/tc/glibc
           mkdir -p $GLIBC_DIR
-          for bin in \
-            $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-gcc \
-            $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-g++ \
-            $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-as \
-            $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-ld \
-            $HOME/tc/arm-eabi-4.9/bin/arm-eabi-gcc \
-            $HOME/tc/arm-eabi-4.9/bin/arm-eabi-g++ \
-            $HOME/tc/arm-eabi-4.9/bin/arm-eabi-as \
-            $HOME/tc/arm-eabi-4.9/bin/arm-eabi-ld; do
-            [ -f "$bin" ] || continue
-            ldd "$bin" | awk '{print $3}' | grep '^/' | while read lib; do
-              cp -n "$lib" $GLIBC_DIR/ 2>/dev/null || true
-            done
-          done
-          # Copy dynamic linker
-          find /lib/x86_64-linux-gnu /lib64 -name 'ld-linux-x86-64*' \
-            -exec cp {} $GLIBC_DIR/ \; 2>/dev/null || true
-          echo "bundled:"; ls $GLIBC_DIR/
+          # Copy required aarch64 libraries from the cross-compiler sysroot
+          cp -P /usr/aarch64-linux-gnu/lib/libc.so.6 $GLIBC_DIR/ 2>/dev/null || true
+          cp -P /usr/aarch64-linux-gnu/lib/libc-*.so $GLIBC_DIR/ 2>/dev/null || true
+          cp -P /usr/aarch64-linux-gnu/lib/libm.so.6 $GLIBC_DIR/ 2>/dev/null || true
+          cp -P /usr/aarch64-linux-gnu/lib/libm-*.so $GLIBC_DIR/ 2>/dev/null || true
+          cp -P /usr/aarch64-linux-gnu/lib/libdl.so.2 $GLIBC_DIR/ 2>/dev/null || true
+          cp -P /usr/aarch64-linux-gnu/lib/libpthread.so.0 $GLIBC_DIR/ 2>/dev/null || true
+          cp -P /usr/aarch64-linux-gnu/lib/librt.so.1 $GLIBC_DIR/ 2>/dev/null || true
+          cp -P /usr/aarch64-linux-gnu/lib/libgcc_s.so.1 $GLIBC_DIR/ 2>/dev/null || true
+          # Copy aarch64 dynamic linker
+          cp -P /usr/aarch64-linux-gnu/lib/ld-linux-aarch64.so.1 $GLIBC_DIR/ 2>/dev/null || true
+          echo "bundled aarch64 libs:"; ls -lh $GLIBC_DIR/
 
-      - name: Patch binaries
+      - name: Patch binaries for aarch64 host
         run: |
           GLIBC_DIR=$HOME/tc/glibc
-          INTERP=$(find /lib/x86_64-linux-gnu /lib64 -name 'ld-linux-x86-64*' 2>/dev/null | head -1)
-          echo "interpreter: $INTERP"
+          INTERP="/lib/ld-linux-aarch64.so.1"
           for bin in \
             $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-gcc \
             $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-g++ \
@@ -236,7 +234,7 @@ jobs:
             [ -f "$bin" ] || continue
             patchelf --set-interpreter "$INTERP" \
                      --set-rpath "$GLIBC_DIR" \
-                     "$bin" && echo "patched: $(basename $bin)" || true
+                     "$bin" && echo "patched for phone: $(basename $bin)" || true
           done
 
       - name: Create wrappers
@@ -255,8 +253,6 @@ jobs:
 
       - name: Verify
         run: |
-          $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-gcc --version
-          $HOME/tc/arm-eabi-4.9/bin/arm-eabi-gcc --version
           file $HOME/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-gcc.real
 
       - name: Package
@@ -271,3 +267,4 @@ jobs:
           name: toolchain-aarch64-cm11
           path: ~/toolchain-aarch64-cm11.tar.xz
           retention-days: 30
+          
