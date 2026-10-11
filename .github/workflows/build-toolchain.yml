@@ -78,6 +78,9 @@ jobs:
           make -j$(nproc) CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
           make install
 
+      - name: Add androideabi binutils to PATH
+        run: echo "/root/tc/arm-linux-androideabi-4.9/bin" >> $GITHUB_PATH
+
       - name: Build GCC arm-linux-androideabi
         run: |
           mkdir build-gcc-android && cd build-gcc-android
@@ -107,6 +110,9 @@ jobs:
             --disable-nls --disable-multilib --disable-werror
           make -j$(nproc) CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
           make install
+
+      - name: Add eabi binutils to PATH
+        run: echo "/root/tc/arm-eabi-4.9/bin" >> $GITHUB_PATH
 
       - name: Build GCC arm-eabi
         run: |
