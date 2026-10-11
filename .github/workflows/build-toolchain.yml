@@ -7,20 +7,24 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     container:
-      image: ubuntu:18.04
+      image: ubuntu:20.04
+
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Install dependencies
         run: |
           apt-get update
           apt-get install -y ca-certificates wget curl
           dpkg --add-architecture arm64
           printf '%s\n' \
-            'deb [arch=amd64] http://archive.ubuntu.com/ubuntu bionic main restricted universe multiverse' \
-            'deb [arch=amd64] http://archive.ubuntu.com/ubuntu bionic-updates main restricted universe multiverse' \
-            'deb [arch=amd64] http://security.ubuntu.com/ubuntu bionic-security main restricted universe multiverse' \
-            'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports bionic main restricted universe multiverse' \
-            'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports bionic-updates main restricted universe multiverse' \
-            'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports bionic-security main restricted universe multiverse' \
+            'deb [arch=amd64] http://archive.ubuntu.com/ubuntu focal main restricted universe multiverse' \
+            'deb [arch=amd64] http://archive.ubuntu.com/ubuntu focal-updates main restricted universe multiverse' \
+            'deb [arch=amd64] http://security.ubuntu.com/ubuntu focal-security main restricted universe multiverse' \
+            'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal main restricted universe multiverse' \
+            'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal-updates main restricted universe multiverse' \
+            'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal-security main restricted universe multiverse' \
             > /etc/apt/sources.list
           apt-get update
           apt-get install -y \
@@ -28,7 +32,9 @@ jobs:
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
             libgmp-dev libmpfr-dev libmpc-dev libisl-dev \
             libgmp-dev:arm64 libmpfr-dev:arm64 libmpc-dev:arm64 libisl-dev:arm64 \
-            flex bison texinfo git zip patchelf xz-utils zlib1g-dev zlib1g-dev:arm64
+            zlib1g-dev zlib1g-dev:arm64 \
+            flex bison texinfo git zip patchelf xz-utils \
+            DEBIAN_FRONTEND=noninteractive
 
       - name: Set env
         run: |
@@ -53,14 +59,15 @@ jobs:
 
       - name: Patch config for aarch64
         run: |
-          wget -q 'https://git.savannah.gnu.org/cgit/config.git/plain/config.sub' -O config.sub.new
-          wget -q 'https://git.savannah.gnu.org/cgit/config.git/plain/config.guess' -O config.guess.new
+          cp $GITHUB_WORKSPACE/config.sub config.sub.new
+          cp $GITHUB_WORKSPACE/config.guess config.guess.new
           for dir in gcc-4.9.4 binutils-2.27; do
             find $dir -name 'config.sub'   -exec cp config.sub.new   {} \;
             find $dir -name 'config.guess' -exec cp config.guess.new {} \;
           done
+          echo "patched"
 
-      - name: Patch GCC 4.7 for modern host
+      - name: Patch GCC 4.9 for modern host
         run: |
           cd gcc-4.9.4
           sed -i 's/sa.sa_flags = SA_SIGINFO/sa.sa_flags = 0/g' gcc/collect2.c 2>/dev/null || true
@@ -75,7 +82,9 @@ jobs:
             --host=aarch64-linux-gnu \
             --build=x86_64-linux-gnu \
             --disable-nls --disable-multilib --disable-werror
-          make -j$(nproc) CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
+          make -j$(nproc) \
+            CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
           make install
 
       - name: Add androideabi binutils to PATH
@@ -93,10 +102,20 @@ jobs:
             --disable-nls --disable-multilib --disable-shared \
             --disable-libssp --disable-libgomp --disable-libmudflap \
             --with-arch=armv7-a --with-float=softfp --with-fpu=vfpv3-d16 \
-            --with-gnu-as --with-gnu-ld --disable-werror             --disable-doc --disable-docs --disable-info             --disable-build-format-warnings             --disable-bootstrap             --disable-libstdcxx-pch             --disable-plugin             --disable-lto             --with-system-zlib             MAKEINFO=missing
-          make -j$(nproc) all-gcc MAKEINFO=missing CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
+            --with-gnu-as --with-gnu-ld \
+            --disable-werror \
+            --disable-docs \
+            --disable-bootstrap \
+            --disable-libstdcxx-pch \
+            --disable-lto \
+            --with-system-zlib
+          make -j$(nproc) all-gcc MAKEINFO=missing \
+            CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
           make install-gcc
-          make -j$(nproc) all-target-libgcc CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
+          make -j$(nproc) all-target-libgcc MAKEINFO=missing \
+            CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
           make install-target-libgcc
 
       - name: Build binutils arm-eabi
@@ -108,7 +127,9 @@ jobs:
             --host=aarch64-linux-gnu \
             --build=x86_64-linux-gnu \
             --disable-nls --disable-multilib --disable-werror
-          make -j$(nproc) CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
+          make -j$(nproc) \
+            CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
           make install
 
       - name: Add eabi binutils to PATH
@@ -125,10 +146,19 @@ jobs:
             --enable-languages=c,c++ \
             --disable-nls --disable-multilib --disable-shared \
             --disable-threads --disable-libssp --disable-libgomp --disable-libmudflap \
-            --without-headers --with-newlib --disable-werror             --disable-doc --disable-docs --disable-info             --disable-build-format-warnings             --disable-bootstrap             --disable-libstdcxx-pch             --disable-plugin             --disable-lto             MAKEINFO=missing
-          make -j$(nproc) all-gcc MAKEINFO=missing CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
+            --without-headers --with-newlib \
+            --disable-werror \
+            --disable-docs \
+            --disable-bootstrap \
+            --disable-libstdcxx-pch \
+            --disable-lto
+          make -j$(nproc) all-gcc MAKEINFO=missing \
+            CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
           make install-gcc
-          make -j$(nproc) all-target-libgcc CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
+          make -j$(nproc) all-target-libgcc MAKEINFO=missing \
+            CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar RANLIB=aarch64-linux-gnu-ranlib
           make install-target-libgcc
 
       - name: Bundle glibc
@@ -157,6 +187,7 @@ jobs:
         run: |
           GLIBC_DIR=/root/tc/glibc
           INTERP=$(find $GLIBC_DIR -name 'ld-linux-aarch64*' | head -1)
+          echo "interpreter: $INTERP"
           for bin in \
             /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-gcc \
             /root/tc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-g++ \
