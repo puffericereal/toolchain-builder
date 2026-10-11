@@ -116,6 +116,8 @@ jobs:
             MAKEINFO=missing \
             CFLAGS_FOR_BUILD="-O2" \
             CXXFLAGS_FOR_BUILD="-O2" \
+            CXXFLAGS="-O2 -std=gnu++98" \
+            CFLAGS="-O2" \
             CC=aarch64-linux-gnu-gcc \
             CXX=aarch64-linux-gnu-g++ \
             AR=aarch64-linux-gnu-ar \
@@ -179,6 +181,8 @@ jobs:
             MAKEINFO=missing \
             CFLAGS_FOR_BUILD="-O2" \
             CXXFLAGS_FOR_BUILD="-O2" \
+            CXXFLAGS="-O2 -std=gnu++98" \
+            CFLAGS="-O2" \
             CC=aarch64-linux-gnu-gcc \
             CXX=aarch64-linux-gnu-g++ \
             AR=aarch64-linux-gnu-ar \
