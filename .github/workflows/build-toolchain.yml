@@ -43,7 +43,6 @@ jobs:
           tar xf gcc-4.9.4.tar.gz
           cd gcc-4.9.4 
           ./contrib/download_prerequisites
-          # Fix timestamp skew on downloaded prerequisites to prevent flex errors
           touch gmp/configure mpfr/configure mpc/configure 2>/dev/null || true
           cd ..
 
@@ -119,10 +118,11 @@ jobs:
             --disable-werror
           make -j$(nproc) all-gcc \
             MAKEINFO=missing \
-            CFLAGS_FOR_BUILD="-O2" \
-            CXXFLAGS_FOR_BUILD="-O2" \
-            CXXFLAGS="-O2 -std=gnu++98" \
-            CFLAGS="-O2" \
+            CFLAGS_FOR_BUILD="-O2 -Wno-error" \
+            CXXFLAGS_FOR_BUILD="-O2 -Wno-error" \
+            CXXFLAGS="-O2 -std=gnu++98 -Wno-error" \
+            CFLAGS="-O2 -Wno-error" \
+            STAGE1_CFLAGS="-O2 -Wno-error" \
             CC=aarch64-linux-gnu-gcc \
             CXX=aarch64-linux-gnu-g++ \
             AR=aarch64-linux-gnu-ar \
@@ -130,6 +130,8 @@ jobs:
           make install-gcc
           make -j$(nproc) all-target-libgcc \
             MAKEINFO=missing \
+            CFLAGS_FOR_BUILD="-O2 -Wno-error" \
+            CFLAGS="-O2 -Wno-error" \
             CC=aarch64-linux-gnu-gcc \
             CXX=aarch64-linux-gnu-g++ \
             AR=aarch64-linux-gnu-ar \
@@ -184,10 +186,11 @@ jobs:
             --disable-werror
           make -j$(nproc) all-gcc \
             MAKEINFO=missing \
-            CFLAGS_FOR_BUILD="-O2" \
-            CXXFLAGS_FOR_BUILD="-O2" \
-            CXXFLAGS="-O2 -std=gnu++98" \
-            CFLAGS="-O2" \
+            CFLAGS_FOR_BUILD="-O2 -Wno-error" \
+            CXXFLAGS_FOR_BUILD="-O2 -Wno-error" \
+            CXXFLAGS="-O2 -std=gnu++98 -Wno-error" \
+            CFLAGS="-O2 -Wno-error" \
+            STAGE1_CFLAGS="-O2 -Wno-error" \
             CC=aarch64-linux-gnu-gcc \
             CXX=aarch64-linux-gnu-g++ \
             AR=aarch64-linux-gnu-ar \
@@ -195,6 +198,8 @@ jobs:
           make install-gcc
           make -j$(nproc) all-target-libgcc \
             MAKEINFO=missing \
+            CFLAGS_FOR_BUILD="-O2 -Wno-error" \
+            CFLAGS="-O2 -Wno-error" \
             CC=aarch64-linux-gnu-gcc \
             CXX=aarch64-linux-gnu-g++ \
             AR=aarch64-linux-gnu-ar \
@@ -205,7 +210,6 @@ jobs:
         run: |
           GLIBC_DIR=$HOME/tc/glibc
           mkdir -p $GLIBC_DIR
-          # Copy required aarch64 libraries from the cross-compiler sysroot
           cp -P /usr/aarch64-linux-gnu/lib/libc.so.6 $GLIBC_DIR/ 2>/dev/null || true
           cp -P /usr/aarch64-linux-gnu/lib/libc-*.so $GLIBC_DIR/ 2>/dev/null || true
           cp -P /usr/aarch64-linux-gnu/lib/libm.so.6 $GLIBC_DIR/ 2>/dev/null || true
@@ -214,7 +218,6 @@ jobs:
           cp -P /usr/aarch64-linux-gnu/lib/libpthread.so.0 $GLIBC_DIR/ 2>/dev/null || true
           cp -P /usr/aarch64-linux-gnu/lib/librt.so.1 $GLIBC_DIR/ 2>/dev/null || true
           cp -P /usr/aarch64-linux-gnu/lib/libgcc_s.so.1 $GLIBC_DIR/ 2>/dev/null || true
-          # Copy aarch64 dynamic linker
           cp -P /usr/aarch64-linux-gnu/lib/ld-linux-aarch64.so.1 $GLIBC_DIR/ 2>/dev/null || true
           echo "bundled aarch64 libs:"; ls -lh $GLIBC_DIR/
 
