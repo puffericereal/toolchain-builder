@@ -1,0 +1,60 @@
+name: Compile OpenJDK 7 for aarch64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    
+    steps:
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential git curl wget \
+            libx11-dev libxext-dev libxrender-dev \
+            libfreetype6-dev libasound2-dev \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu libc6-dev-arm64-cross \
+            openjdk-11-jdk ant mercurial
+
+      - name: Clone jdk7u
+        run: |
+          cd /tmp
+          hg clone http://hg.openjdk.java.net/jdk7u/jdk7u-dev jdk7 || \
+          git clone https://git.openjdk.java.net/jdk7u/jdk7u-dev jdk7 || \
+          git clone https://github.com/openjdk/jdk7u jdk7
+          cd jdk7
+          bash get_source.sh
+
+      - name: Configure
+        run: |
+          cd /tmp/jdk7
+          bash configure \
+            --with-boot-jdk=/usr/lib/jvm/java-11-openjdk-amd64 \
+            --with-target-bits=64 \
+            --enable-openjdk-only \
+            --disable-debug-symbols \
+            --disable-zip-debug-info \
+            CC=gcc CXX=g++ \
+            STRIP=strip 2>&1 | tail -20
+
+      - name: Build (stage 1 - x86 bootstrap)
+        run: |
+          cd /tmp/jdk7
+          make JOBS=$(nproc) images 2>&1 | tail -50
+
+      - name: Package
+        run: |
+          cd /tmp/jdk7
+          tar cJf /tmp/jdk7-aarch64.tar.xz build/linux-amd64/j2sdk-image/
+          ls -lh /tmp/jdk7-aarch64.tar.xz
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: jdk7-aarch64
+          path: /tmp/jdk7-aarch64.tar.xz
+          retention-days: 30
