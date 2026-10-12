@@ -1,0 +1,61 @@
+name: Build OpenJDK 7 for aarch64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    container:
+      image: ubuntu:20.04
+    
+    steps:
+      - name: Install build deps
+        run: |
+          apt-get update
+          apt-get install -y \
+            build-essential curl wget git \
+            libx11-dev libxext-dev libxrender-dev \
+            libfreetype6-dev libasound2-dev \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu \
+            ca-certificates
+      
+      - name: Download OpenJDK 7 source
+        run: |
+          cd /tmp
+          wget -q https://github.com/openjdk/jdk7u/archive/refs/tags/jdk7u343-ga.tar.gz
+          tar xf jdk7u343-ga.tar.gz
+          cd jdk7u-jdk7u343-ga
+          sh make/scripts/get_source.sh
+      
+      - name: Configure for aarch64 cross-compile
+        run: |
+          cd /tmp/jdk7u-jdk7u343-ga
+          bash configure \
+            --openjdk-target=aarch64-linux-gnu \
+            --build=x86_64-linux-gnu \
+            --host=x86_64-linux-gnu \
+            --with-boot-jdk=/usr/lib/jvm/java-11-openjdk-amd64 \
+            --with-jvm-variants=server \
+            --disable-zip-debug-info \
+            --with-debug-level=release \
+            CC=gcc CXX=g++ \
+            STRIP=strip
+      
+      - name: Build
+        run: |
+          cd /tmp/jdk7u-jdk7u343-ga
+          make JOBS=$(nproc) images 2>&1 | tail -50
+      
+      - name: Package
+        run: |
+          cd /tmp/jdk7u-jdk7u343-ga
+          tar cJf /tmp/jdk7-aarch64.tar.xz build/linux-aarch64/j2sdk-image/
+      
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: jdk7-aarch64
+          path: /tmp/jdk7-aarch64.tar.xz
+          retention-days: 30
